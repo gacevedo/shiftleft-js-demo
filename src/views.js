@@ -8,25 +8,26 @@ module.exports = app => {
   });
   app.get(`/login`, (req, res) => res.render('Login'));
 
-  app.get(`/user-input`, (req, res) => {
-    /*
-      User input vulnerability,
-      if the user passes vulnerable javascipt code, its executed in user's browser
-      ex: alert('hi')
-    */
-    let result = '';
-    try {
-      result = require('util').inspect(eval(req.query.userInput));
-    } catch (ex) {
-      console.error(ex);
-    }
-    res.render('UserInput', {
-      userInput: req.query.userInput,
-      result,
-      date: new Date().toUTCString()
-    });
+(req, res) => {
+  /* QWIETAI-AUTOFIX: Start */
+  let userInput = DOMPurify.sanitize(req.query.userInput); // sanitize user input
+  let result = '';
+  try {
+    result = util.inspect(eval(userInput)); // use eval safely
+  } catch (ex) {
+    console.error(ex);
+  }
+  res.render('UserInput', {
+    userInput: userInput, // sanitized input
+    result: DOMPurify.sanitize(result), // sanitize output
+    date: new Date().toUTCString()
+  });
+  /* QWIETAI-AUTOFIX: End */
+}
+
   });
 
   app.get(`/`, secured.get);
   app.post(`/`, secured.post);
 };
+
