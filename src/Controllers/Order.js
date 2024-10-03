@@ -8,11 +8,20 @@ class Order {
     // Hash Key
     return key;
   }
-  encryptData(secretText) {
-    // Weak encryption
-    const desCipher = crypto.createCipheriv('des', encryptionKey);
-    return desCipher.update(secretText, 'utf8', 'hex');
+encryptData(secretText) {
+  // QWIETAI-AUTOFIX: Sensitive Data Exposure - Ensure encryption key is set
+  if (!encryptionKey) {
+    throw new Error('Encryption key is not set');
   }
+
+  // QWIETAI-AUTOFIX: Weak Cryptography - Use stronger cryptographic algorithm
+  const iv = crypto.randomBytes(8);
+  const cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(encryptionKey), iv);
+  let encrypted = cipher.update(secretText);
+  encrypted = Buffer.concat([iv, encrypted, cipher.final()]);
+  return encrypted.toString('hex');
+}
+
 
 decryptData(encryptedText) {
   // QWIETAI-AUTOFIX: Check if encryption key is set
@@ -132,4 +141,5 @@ decryptData(encryptedText) {
 }
 
 module.exports = new Order();
+
 
