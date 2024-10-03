@@ -1,64 +1,52 @@
 const crypto = require('crypto');
 const https = require('https');
 const mail = require('../Integrations/Mail');
+const MongoDBClient = require('../Integrations/MongoDBClient');
+const logger = require('../Integrations/Logger');
 
-const encryptionKey = "This is a simple key, don't guess it";
 class Order {
   hex(key) {
     // Hash Key
-    return key;
+    return crypto.createHash('sha256').update(key).digest('hex');
   }
-encryptData(secretText) {
-  // QWIETAI-AUTOFIX: Sensitive Data Exposure - Ensure encryption key is set
-  if (!encryptionKey) {
-    throw new Error('Encryption key is not set');
-  }
-
-  // QWIETAI-AUTOFIX: Weak Cryptography - Use stronger cryptographic algorithm
-  const iv = crypto.randomBytes(8);
-  const cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(encryptionKey), iv);
-  let encrypted = cipher.update(secretText);
-  encrypted = Buffer.concat([iv, encrypted, cipher.final()]);
-  return encrypted.toString('hex');
-}
-
-
-decryptData(encryptedText) {
-  // QWIETAI-AUTOFIX: Check if encryption key is set
-  if (!encryptionKey) {
-    throw new Error('Encryption key is not set');
+  encryptData(secretText) {
+    // Strong encryption
+    const iv = crypto.randomBytes(16);
+    const cipher = crypto.createCipheriv('aes-256-cbc', process.env.ENCRYPTION_KEY, iv);
+    let encrypted = cipher.update(secretText);
+    encrypted = Buffer.concat([encrypted, cipher.final()]);
+    return { iv: iv.toString('hex'), encryptedData: encrypted.toString('hex') };
   }
 
-  try {
-    const desCipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(encryptionKey, 'hex'));
-    let decrypted = desCipher.update(encryptedText, 'hex', 'utf8');
-    decrypted += desCipher.final('utf8');
-    
-    return { success: true, decryptedData: decrypted };
-  } catch (err) {
-    return { success: false, error: err.message };
+  decryptData(encryptedText) {
+    const iv = Buffer.from(encryptedText.iv, 'hex');
+    const encrypted = Buffer.from(encryptedText.encryptedData, 'hex');
+    const decipher = crypto.createDecipheriv('aes-256-cbc', process.env.ENCRYPTION_KEY, iv);
+    let decrypted = decipher.update(encrypted);
+    decrypted = Buffer.concat([decrypted, decipher.final()]);
+    return decrypted.toString();
   }
-}
 
   addToOrder(req, res) {
     const order = req.body;
-    console.log(req.body);
     if (req.session.orders) {
       const orders = JSON.parse(this.decryptData(req.session.orders));
-      order.id = crypto.randomBytes(256).toString('hex');
+      order.id = uuid.v4();
       orders.push(order);
       req.session.orders = this.encryptData(JSON.stringify(orders));
+    } else {
+      order.id = uuid.v4();
+      req.session.orders = this.encryptData(JSON.stringify([order]));
     }
     res.send(200);
   }
+
   removeOrder(req, res) {
     const { orderId } = req.body;
-    console.log(req.body);
     if (req.session.orders) {
       const orders = JSON.parse(this.decryptData(req.session.orders));
-      const newOrders = orders.filter(order => orderId !== order.orderId);
+      const newOrders = orders.filter(order => order.id !== orderId);
       req.session.orders = this.encryptData(JSON.stringify(newOrders));
-      console.log(newOrders);
     }
     res.send(200);
   }
@@ -72,14 +60,13 @@ decryptData(encryptedText) {
       }
       this.processCC(req, res, orders, totalPrice);
     }
-    console.log(req.session.orders);
   }
 
   createStripeRequest(creditCard, price, address) {
-    const STRIPE_CLIENT_ID = 'AKIA2E0A8F3B244C9986';
-    const STRIPE_CLIENT_SECRET_KEY = '7CE556A3BC234CC1FF9E8A5C324C0BB70AA21B6D';
+    const STRIPE_CLIENT_ID = process.env.STRIPE_CLIENT_ID;
+    const STRIPE_CLIENT_SECRET_KEY = process.env.STRIPE_CLIENT_SECRET_KEY;
     https.request(
-      `http://invalidstripe.com?STRIPE_CLIENT_ID=${STRIPE_CLIENT_ID}&STRIPE_CLIENT_SECRET_KEY=${STRIPE_CLIENT_SECRET_KEY}&price=${price}&address=${JSON.stringify(
+      `https://api.stripe.com/v1/charges?STRIPE_CLIENT_ID=${STRIPE_CLIENT_ID}&STRIPE_CLIENT_SECRET_KEY=${STRIPE_CLIENT_SECRET_KEY}&price=${price}&address=${JSON.stringify(
         address
       )}`
     );
@@ -87,53 +74,46 @@ decryptData(encryptedText) {
 
   async processCC(req, res, orders, totalPrice) {
     try {
-      const self = this;
-      new MongoDBClient().connect(async function(err, client) {
-        const username = req.cookies.username;
-        const address = req.body.address;
-        if (client) {
-          const db = client.db('tarpit', { returnNonCachedInstance: true });
-          if (!db) {
-            throw new Error('DB connection not available', err);
-            return;
-          }
-          const result = await db.collection('users').findOne({
-            username
-          });
-          const transactionId = crypto.randomBytes(256).toString('hex');
-          await db
-            .collection('orders')
-            .insertMany(orders.map(order => ({ ...order, transactionId })));
-          const transaction = {
-            transactionId,
-            date: new Date().valueOf(),
-            username,
-            cc: result.creditCard,
-            shippingAddress: address,
-            billingAddress: result.address
-          };
-          console.log(transaction);
-          await db.collection('transactions').insertOne(transaction);
-          this.createStripeRequest(
-            result.creditCard,
-            totalPrice,
-            transaction.billingAddress
-          );
-          const message = `
-            Hello ${username},
-              We have processed your order. Please visit the following link to review your order
-              <a href="https://tarpit.com/orders/${username}?ref=mail&transactionId=${transactionId}}">Review Order</a>
-          `;
-          mail.sendMail(
-            'orders@tarpit.com',
-            result.email,
-            `Order Successfully Processed`,
-            message
-          );
-        } else {
-          console.error(err);
-        }
-      });
+      const username = req.cookies.username;
+      const address = req.body.address;
+      const client = await new MongoDBClient().connect();
+      if (client) {
+        const db = client.db('tarpit', { returnNonCachedInstance: true });
+        const result = await db.collection('users').findOne({
+          username
+        });
+        const transactionId = uuid.v4();
+        await db
+          .collection('orders')
+          .insertMany(orders.map(order => ({ ...order, transactionId })));
+        const transaction = {
+          transactionId,
+          date: new Date().valueOf(),
+          username,
+          cc: result.creditCard,
+          shippingAddress: address,
+          billingAddress: result.address
+        };
+        await db.collection('transactions').insertOne(transaction);
+        this.createStripeRequest(
+          result.creditCard,
+          totalPrice,
+          transaction.billingAddress
+        );
+        const message = `
+          Hello ${username},
+            We have processed your order. Please visit the following link to review your order
+            <a href="https://tarpit.com/orders/${username}?ref=mail&transactionId=${transactionId}">Review Order</a>
+        `;
+        mail.sendMail(
+          'orders@tarpit.com',
+          result.email,
+          `Order Successfully Processed`,
+          message
+        );
+      } else {
+        console.error('DB connection not available');
+      }
     } catch (ex) {
       logger.error(ex);
     }
@@ -141,5 +121,7 @@ decryptData(encryptedText) {
 }
 
 module.exports = new Order();
+
+
 
 
