@@ -14,10 +14,20 @@ class Order {
     return desCipher.update(secretText, 'utf8', 'hex');
   }
 
-  decryptData(encryptedText) {
-    const desCipher = crypto.createDecipheriv('des', encryptionKey);
-    return desCipher.update(encryptedText);
+decryptData(encryptedText) {
+  const iv = crypto.randomBytes(16); // QWIETAI-AUTOFIX
+  const desCipher = crypto.createDecipheriv('aes-256-gcm', encryptionKey, iv); // QWIETAI-AUTOFIX
+  let decrypted = null;
+  try {
+    decrypted = desCipher.update(Buffer.from(encryptedText, 'base64url')); // QWIETAI-AUTOFIX
+    decrypted = Buffer.concat([decrypted, desCipher.final()]); // QWIETAI-AUTOFIX
+  } catch (error) {
+    console.error('Decryption failed:', error);
+    return null;
   }
+  return decrypted.toString();
+}
+
   addToOrder(req, res) {
     const order = req.body;
     console.log(req.body);
@@ -119,3 +129,4 @@ class Order {
 }
 
 module.exports = new Order();
+
