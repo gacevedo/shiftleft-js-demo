@@ -8,11 +8,18 @@ class Order {
     // Hash Key
     return key;
   }
-  encryptData(secretText) {
-    // Weak encryption
-    const desCipher = crypto.createCipheriv('des', encryptionKey);
-    return desCipher.update(secretText, 'utf8', 'hex');
+encryptData(secretText) {
+  if (!encryptionKey) {
+    throw new Error('Encryption key is not set');
   }
+  // Strong encryption using AES-256-CBC
+  const iv = crypto.randomBytes(16);
+  const cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(encryptionKey), iv);
+  let encrypted = cipher.update(secretText);
+  encrypted = Buffer.concat([iv, encrypted, cipher.final()]);
+  return encrypted.toString('hex');
+}
+
 
 decryptData(encryptedText) {
   const iv = crypto.randomBytes(16); // QWIETAI-AUTOFIX
@@ -129,4 +136,5 @@ decryptData(encryptedText) {
 }
 
 module.exports = new Order();
+
 
