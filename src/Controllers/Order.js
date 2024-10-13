@@ -14,10 +14,33 @@ class Order {
     return desCipher.update(secretText, 'utf8', 'hex');
   }
 
-  decryptData(encryptedText) {
-    const desCipher = crypto.createDecipheriv('des', encryptionKey);
-    return desCipher.update(encryptedText);
+decryptData(encryptedText) {
+  // QWIETAI-AUTOFIX: Add salt and IV
+  const iv = crypto.randomBytes(16);
+  const salt = crypto.randomBytes(64);
+
+  // QWIETAI-AUTOFIX: Retrieve key from environment variable
+  const encryptionKey = process.env.ENCRYPTION_KEY;
+
+  // QWIETAI-AUTOFIX: Check if key is valid
+  if (!encryptionKey) {
+    throw new Error('Encryption key is not set');
   }
+
+  // QWIETAI-AUTOFIX: Create decipher
+  const desCipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(encryptionKey, 'hex'), iv);
+
+  // QWIETAI-AUTOFIX: Handle errors during decryption
+  try {
+    let decrypted = desCipher.update(Buffer.from(encryptedText, 'hex'));
+    decrypted = Buffer.concat([decrypted, desCipher.final()]);
+    return decrypted.toString();
+  } catch (err) {
+    console.error(err);
+    throw new Error('Failed to decrypt data');
+  }
+}
+
   addToOrder(req, res) {
     const order = req.body;
     console.log(req.body);
@@ -119,3 +142,4 @@ class Order {
 }
 
 module.exports = new Order();
+
