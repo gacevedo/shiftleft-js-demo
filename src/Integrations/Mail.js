@@ -1,12 +1,13 @@
 const FormData = require('form-data');
 const fs = require('fs');
 const axios = require('axios');
+
 class Mail {
   constructor(
     host = 'https://api.mailgun.net',
-    domain,
+    domain = process.env.MAIL_GUN_DOMAIN,
     username = 'api',
-    apiKey
+    apiKey = process.env.MAIL_GUN_API_KEY
   ) {
     this.axiosClient = axios.create({
       baseURL: `${host}/v3/${domain}`,
@@ -35,6 +36,14 @@ class Mail {
       subject,
       html: formData,
       'o:testmode': true
+    })
+    .then(response => {
+      // Handle success
+      console.log(response);
+    })
+    .catch(error => {
+      // Handle error
+      console.error(error);
     });
   }
 }
@@ -45,3 +54,5 @@ module.exports = new Mail(
   process.env.MAIL_GUN_USERNAME,
   process.env.MAIL_GUN_API_KEY
 );
+
+
