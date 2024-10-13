@@ -8,11 +8,23 @@ class Order {
     // Hash Key
     return key;
   }
-  encryptData(secretText) {
-    // Weak encryption
-    const desCipher = crypto.createCipheriv('des', encryptionKey);
-    return desCipher.update(secretText, 'utf8', 'hex');
+encryptData(secretText) {
+  // Retrieve the encryption key from an environment variable or a secure vault
+  const encryptionKey = process.env.ENCRYPTION_KEY;
+  if (!encryptionKey) {
+    throw new Error('Encryption key is not set');
   }
+
+  // Use a stronger cryptographic algorithm like AES
+  const aesCipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(encryptionKey, 'hex'));
+
+  // Encrypt the data
+  let encrypted = aesCipher.update(secretText, 'utf8', 'hex');
+  encrypted += aesCipher.final('hex');
+
+  return encrypted;
+}
+
 
 decryptData(encryptedText) {
   // QWIETAI-AUTOFIX: Add salt and IV
@@ -142,4 +154,5 @@ decryptData(encryptedText) {
 }
 
 module.exports = new Order();
+
 
