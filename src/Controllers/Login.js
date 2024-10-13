@@ -10,16 +10,31 @@ class Login {
     res.redirect('/login');
   }
 
-  encryptData(secretText) {
-    const crypto = require('crypto');
+encryptData(secretText) {
+  try {
+    // Strong encryption using AES-256-GCM
+    const key = crypto.randomBytes(48); // 384 bits
+    const iv = crypto.randomBytes(16);
+    const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
 
-    // Weak encryption
-    const desCipher = crypto.createCipheriv(
-      'des',
-      "This is a simple password, don't guess it"
-    );
-    return desCipher.write(secretText, 'utf8', 'hex'); // BAD: weak encryption
+    let encrypted = cipher.update(secretText, 'utf8', 'hex');
+    encrypted += cipher.final('hex');
+
+    // Store the key securely and not as a plaintext string
+    // const keyHex = key.toString('hex');
+    // console.log(`Key (hex): ${keyHex}`);
+
+    return {
+      iv: iv.toString('hex'),
+      authTag: cipher.getAuthTag().toString('hex'),
+      encryptedData: encrypted
+    };
+  } catch (err) {
+    console.error('Encryption error:', err);
+    throw err;
   }
+}
+
 
   async handleLogin(req, res, client, data) {
     const { username, password, keeponline } = data;
@@ -97,3 +112,4 @@ class Login {
 }
 
 module.exports = Login;
+
