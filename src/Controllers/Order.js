@@ -1,58 +1,24 @@
 const crypto = require('crypto');
 const https = require('https');
 const mail = require('../Integrations/Mail');
+const MongoDBClient = require('../Database/MongoDBClient');
 
-const encryptionKey = "This is a simple key, don't guess it";
+const encryptionKey = "This is a simple key, don't guess it"; // Removed the hashKey function
 class Order {
   hex(key) {
     // Hash Key
     return key;
   }
-encryptData(secretText) {
-  // Retrieve the encryption key from an environment variable or a secure vault
-  const encryptionKey = process.env.ENCRYPTION_KEY;
-  if (!encryptionKey) {
-    throw new Error('Encryption key is not set');
+  encryptData(secretText) {
+    // Weak encryption
+    const desCipher = crypto.createCipheriv('des', encryptionKey);
+    return desCipher.update(secretText, 'utf8', 'hex');
   }
 
-  // Use a stronger cryptographic algorithm like AES
-  const aesCipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(encryptionKey, 'hex'));
-
-  // Encrypt the data
-  let encrypted = aesCipher.update(secretText, 'utf8', 'hex');
-  encrypted += aesCipher.final('hex');
-
-  return encrypted;
-}
-
-
-decryptData(encryptedText) {
-  // QWIETAI-AUTOFIX: Add salt and IV
-  const iv = crypto.randomBytes(16);
-  const salt = crypto.randomBytes(64);
-
-  // QWIETAI-AUTOFIX: Retrieve key from environment variable
-  const encryptionKey = process.env.ENCRYPTION_KEY;
-
-  // QWIETAI-AUTOFIX: Check if key is valid
-  if (!encryptionKey) {
-    throw new Error('Encryption key is not set');
+  decryptData(encryptedText) {
+    const desCipher = crypto.createDecipheriv('des', encryptionKey);
+    return desCipher.update(encryptedText, 'hex', 'utf8');
   }
-
-  // QWIETAI-AUTOFIX: Create decipher
-  const desCipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(encryptionKey, 'hex'), iv);
-
-  // QWIETAI-AUTOFIX: Handle errors during decryption
-  try {
-    let decrypted = desCipher.update(Buffer.from(encryptedText, 'hex'));
-    decrypted = Buffer.concat([decrypted, desCipher.final()]);
-    return decrypted.toString();
-  } catch (err) {
-    console.error(err);
-    throw new Error('Failed to decrypt data');
-  }
-}
-
   addToOrder(req, res) {
     const order = req.body;
     console.log(req.body);
@@ -92,7 +58,7 @@ decryptData(encryptedText) {
     const STRIPE_CLIENT_ID = 'AKIA2E0A8F3B244C9986';
     const STRIPE_CLIENT_SECRET_KEY = '7CE556A3BC234CC1FF9E8A5C324C0BB70AA21B6D';
     https.request(
-      `http://invalidstripe.com?STRIPE_CLIENT_ID=${STRIPE_CLIENT_ID}&STRIPE_CLIENT_SECRET_KEY=${STRIPE_CLIENT_SECRET_KEY}&price=${price}&address=${JSON.stringify(
+      `https://api.stripe.com/v1/charges?STRIPE_CLIENT_ID=${STRIPE_CLIENT_ID}&STRIPE_CLIENT_SECRET_KEY=${STRIPE_CLIENT_SECRET_KEY}&price=${price}&address=${JSON.stringify(
         address
       )}`
     );
@@ -135,7 +101,7 @@ decryptData(encryptedText) {
           const message = `
             Hello ${username},
               We have processed your order. Please visit the following link to review your order
-              <a href="https://tarpit.com/orders/${username}?ref=mail&transactionId=${transactionId}}">Review Order</a>
+              <a href="https://tarpit.com/orders/${username}?ref=mail&transactionId=${transactionId}">Review Order</a>
           `;
           mail.sendMail(
             'orders@tarpit.com',
@@ -154,5 +120,7 @@ decryptData(encryptedText) {
 }
 
 module.exports = new Order();
+
+
 
 
