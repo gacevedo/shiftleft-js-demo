@@ -13,11 +13,11 @@ class Mail {
       timeout: 120000,
       auth: {
         username: username,
-        password: apiKey
+        password: process.env[apiKey]
       }
     });
     console.log(
-      `Connecting to mail host: ${host}:${domain} with login ${username}/${apiKey}`
+      `Connecting to mail host: ${host}:${domain} with login ${username}/${process.env[apiKey]}`
     );
   }
 
@@ -45,3 +45,5 @@ module.exports = new Mail(
   process.env.MAIL_GUN_USERNAME,
   process.env.MAIL_GUN_API_KEY
 );
+
+
