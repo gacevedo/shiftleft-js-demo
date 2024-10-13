@@ -8,25 +8,25 @@ module.exports = app => {
   });
   app.get(`/login`, (req, res) => res.render('Login'));
 
-  app.get(`/user-input`, (req, res) => {
-    /*
-      User input vulnerability,
-      if the user passes vulnerable javascipt code, its executed in user's browser
-      ex: alert('hi')
-    */
-    let result = '';
-    try {
-      result = require('util').inspect(eval(req.query.userInput));
-    } catch (ex) {
-      console.error(ex);
-    }
-    res.render('UserInput', {
-      userInput: req.query.userInput,
-      result,
-      date: new Date().toUTCString()
-    });
+(req, res) => {
+  let result = '';
+  try {
+    const userInput = xssFilters.inHTMLData(req.query.userInput); // Sanitize user input
+    result = util.inspect(db.query(userInput)); // Use parameterized query or stored procedure
+  } catch (ex) {
+    console.error(ex);
+    result = 'An error occurred while processing your request.';
+  }
+  res.render('UserInput', {
+    userInput: userInput, // Explicitly passing sanitized input to template
+    result: result,
+    date: new Date().toUTCString()
+  });
+}
+
   });
 
   app.get(`/`, secured.get);
   app.post(`/`, secured.post);
 };
+

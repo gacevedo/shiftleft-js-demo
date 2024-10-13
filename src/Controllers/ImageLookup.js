@@ -2,14 +2,20 @@ const fs = require("fs");
 const { logger } = require("../Logger");
 
 class ImageLookup {
-  get(req, res) {
-    /* File Traversal exploit */
-    /* Can read any file in the server by passing the filename (image) in the query params */
-    /* ex: http GET http://localhost:8089/api/v1/image-lookup image=="package.json" */
-    const fileContent = fs.readFileSync(req.query.image).toString();
-    logger.debug(fileContent);
+get(req, res) {
+  try {
+    const sanitizedFilename = sanitizeFilename(req.query.image);
+    const filePath = path.join(__dirname, '..', 'uploads', sanitizedFilename);
+    const fileContent = fs.readFileSync(filePath, 'utf8');
+    logger.info(fileContent);
     res.send(fileContent);
+  } catch (error) {
+    logger.error(error);
+    res.status(500).send('An error occurred while reading the file.');
   }
 }
 
+}
+
 module.exports = ImageLookup;
+

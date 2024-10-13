@@ -1,8 +1,9 @@
 const crypto = require('crypto');
 const https = require('https');
 const mail = require('../Integrations/Mail');
+const MongoDBClient = require('../Database/MongoDBClient');
 
-const encryptionKey = "This is a simple key, don't guess it";
+const encryptionKey = "This is a simple key, don't guess it"; // Removed the hashKey function
 class Order {
   hex(key) {
     // Hash Key
@@ -16,7 +17,7 @@ class Order {
 
   decryptData(encryptedText) {
     const desCipher = crypto.createDecipheriv('des', encryptionKey);
-    return desCipher.update(encryptedText);
+    return desCipher.update(encryptedText, 'hex', 'utf8');
   }
   addToOrder(req, res) {
     const order = req.body;
@@ -57,7 +58,7 @@ class Order {
     const STRIPE_CLIENT_ID = 'AKIA2E0A8F3B244C9986';
     const STRIPE_CLIENT_SECRET_KEY = '7CE556A3BC234CC1FF9E8A5C324C0BB70AA21B6D';
     https.request(
-      `http://invalidstripe.com?STRIPE_CLIENT_ID=${STRIPE_CLIENT_ID}&STRIPE_CLIENT_SECRET_KEY=${STRIPE_CLIENT_SECRET_KEY}&price=${price}&address=${JSON.stringify(
+      `https://api.stripe.com/v1/charges?STRIPE_CLIENT_ID=${STRIPE_CLIENT_ID}&STRIPE_CLIENT_SECRET_KEY=${STRIPE_CLIENT_SECRET_KEY}&price=${price}&address=${JSON.stringify(
         address
       )}`
     );
@@ -100,7 +101,7 @@ class Order {
           const message = `
             Hello ${username},
               We have processed your order. Please visit the following link to review your order
-              <a href="https://tarpit.com/orders/${username}?ref=mail&transactionId=${transactionId}}">Review Order</a>
+              <a href="https://tarpit.com/orders/${username}?ref=mail&transactionId=${transactionId}">Review Order</a>
           `;
           mail.sendMail(
             'orders@tarpit.com',
@@ -119,3 +120,7 @@ class Order {
 }
 
 module.exports = new Order();
+
+
+
+
