@@ -14,10 +14,137 @@ class Order {
     return desCipher.update(secretText, 'utf8', 'hex');
   }
 
-  decryptData(encryptedText) {
-    const desCipher = crypto.createDecipheriv('des', encryptionKey);
-    return desCipher.update(encryptedText);
+async decryptData(encryptedText) {
+  try {
+    await sodium.ready; // Ensure libsodium is ready
+    
+    // Parse the encrypted data structure which should contain all required components
+    const encryptedData = JSON.parse(encryptedText);
+    
+    // Verify all required components are present
+    if (!encryptedData.ciphertext || !encryptedData.iv || !encryptedData.authTag) {
+      throw new Error('Invalid encrypted data format');
+    }
+
+    // Get key version for rotation support
+    const keyVersion = encryptedData.keyVersion || 'current';
+    
+    // Choose algorithm based on capabilities
+    const algorithm = this.supportsAESHardware() ? 'aes-256-gcm' : 'chacha20-poly1305';
+    
+    // Envelope encryption: decrypt the data key first
+    const encryptedDataKey = Buffer.from(encryptedData.encryptedDataKey, 'base64');
+    const dataKey = await this.decryptDataKeyFromKMS(encryptedDataKey, keyVersion);
+    
+    try {
+      let decrypted;
+      
+      if (algorithm === 'chacha20-poly1305') {
+        // Using libsodium for ChaCha20-Poly1305
+        const nonce = Buffer.from(encryptedData.iv, 'base64');
+        const ciphertext = Buffer.from(encryptedData.ciphertext, 'base64');
+        const authTag = Buffer.from(encryptedData.authTag, 'base64');
+        
+        // Combine ciphertext and authTag as expected by libsodium
+        const combinedCiphertext = Buffer.concat([ciphertext, authTag]);
+        
+        decrypted = sodium.crypto_aead_chacha20poly1305_ietf_decrypt(
+          null,
+          combinedCiphertext,
+          null,
+          nonce,
+          dataKey
+        );
+        
+        decrypted = Buffer.from(decrypted).toString('utf8');
+      } else {
+        // Using Node.js crypto for AES-256-GCM
+        const iv = Buffer.from(encryptedData.iv, 'base64');
+        const ciphertext = Buffer.from(encryptedData.ciphertext, 'base64');
+        const authTag = Buffer.from(encryptedData.authTag, 'base64');
+        
+        const decipher = crypto.createDecipheriv(algorithm, dataKey, iv);
+        decipher.setAuthTag(authTag);
+        
+        let decryptedText = decipher.update(ciphertext, null, 'utf8');
+        decryptedText += decipher.final('utf8');
+        decrypted = decryptedText;
+      }
+      
+      return decrypted;
+    } finally {
+      // Protect memory by zeroing the key - using Node.js Buffer directly instead of secure-buffer
+      if (dataKey instanceof Buffer) {
+        dataKey.fill(0);
+      }
+    }
+  } catch (error) {
+    console.error('Decryption failed:', error.message);
+    throw new Error('Failed to decrypt data');
   }
+}
+
+// Helper method to check if hardware supports AES acceleration
+supportsAESHardware() {
+  try {
+    // Simple benchmark to detect hardware acceleration
+    const testSize = 1024 * 1024; // 1MB
+    const testData = Buffer.alloc(testSize, 'x');
+    const key = crypto.randomBytes(32);
+    const iv = crypto.randomBytes(16);
+    
+    const start = process.hrtime.bigint();
+    const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
+    cipher.update(testData);
+    cipher.final();
+    const end = process.hrtime.bigint();
+    
+    // If encryption is fast enough (less than 10ms for 1MB), assume hardware acceleration
+    return (end - start) < 10000000n; // 10 milliseconds in nanoseconds
+  } catch (err) {
+    return false;
+  }
+}
+
+// Method to retrieve a key from KMS based on version
+async decryptDataKeyFromKMS(encryptedDataKey, keyVersion = 'current') {
+  // Initialize KMS client
+  const kmsClient = new KMSClient({
+    region: process.env.AWS_REGION || 'us-east-1'
+  });
+  
+  // Key identifier in KMS based on version
+  const keyId = this.getKeyIdentifierForVersion(keyVersion);
+  
+  // Request decryption of the data key using the proper KMS command
+  const command = new DecryptCommand({
+    CiphertextBlob: encryptedDataKey,
+    KeyId: keyId
+  });
+  
+  try {
+    const response = await kmsClient.send(command);
+    
+    // Return the plaintext key as a Buffer for memory protection
+    return Buffer.from(response.Plaintext);
+  } catch (error) {
+    console.error(`Failed to decrypt key version ${keyVersion}:`, error.message);
+    throw new Error('Key management service error');
+  }
+}
+
+// Helper method to map key version to KMS key identifier
+getKeyIdentifierForVersion(version) {
+  const keyMapping = {
+    'current': process.env.KMS_CURRENT_KEY_ID,
+    'previous': process.env.KMS_PREVIOUS_KEY_ID,
+    // Add more versions as needed for rotation
+  };
+  
+  // Default to current if version not found
+  return keyMapping[version] || keyMapping['current'];
+}
+
   addToOrder(req, res) {
     const order = req.body;
     console.log(req.body);
