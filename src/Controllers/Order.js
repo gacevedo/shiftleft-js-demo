@@ -9,10 +9,119 @@ class Order {
     return key;
   }
   encryptData(secretText) {
-    // Weak encryption
-    const desCipher = crypto.createCipheriv('des', encryptionKey);
-    return desCipher.update(secretText, 'utf8', 'hex');
+// Key rotation mechanism - stores current key version
+const KEY_VERSION = 1;
+const KEY_ITERATIONS = 100000; // High iteration count for PBKDF2
+
+encryptData(secretText, context = null) {
+  // Replaced weak DES with ChaCha20-Poly1305 for better performance and timing attack resistance
+  const iv = crypto.randomBytes(12); // 12 bytes for ChaCha20-Poly1305
+  const key = this.deriveKey();
+  
+  // Convert context to string for associated data
+  const associatedData = Buffer.from(JSON.stringify(context));
+  
+  // Use ChaCha20-Poly1305 for encryption with associated data
+  const cipher = crypto.createCipheriv('chacha20-poly1305', key, iv, { authTagLength: 16 });
+  
+  // Add associated data for context binding
+  if (associatedData.length > 0) {
+    cipher.setAAD(associatedData);
   }
+  
+  let encrypted = cipher.update(secretText, 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  
+  // Store the authentication tag for integrity verification
+  const tag = cipher.getAuthTag();
+  
+  // Return complete encryption package with version for future key rotation
+  return {
+    v: KEY_VERSION,
+    iv: iv.toString('hex'),
+    data: encrypted,
+    tag: tag.toString('hex'),
+    context: Object.keys(context).length > 0 ? Buffer.from(JSON.stringify(context)).toString('base64') : null
+  };
+}
+
+// Improved key derivation using PBKDF2 with high iteration count
+deriveKey() {
+  const masterKey = process.env.SECRET_KEY || '';
+  const salt = process.env.KEY_SALT || '';
+  // Additional server-side secret (pepper) for extra protection
+  const pepper = process.env.KEY_PEPPER || '';
+  
+  // Use PBKDF2 with high iteration count
+  return crypto.pbkdf2Sync(
+    masterKey + pepper,
+    salt,
+    KEY_ITERATIONS,
+    32, // 32 bytes (256 bits)
+    'sha512'
+  );
+}
+
+// Corresponding decryption method that validates data integrity
+decryptData(encryptedObject, context = null) {
+  try {
+    // Validate inputs to prevent cryptographic failures
+    if (!encryptedObject.iv || !encryptedObject.data || !encryptedObject.tag) {
+      throw new Error('Invalid encrypted data format');
+    }
+    
+    // Check version for key rotation support
+    if (encryptedObject.v !== KEY_VERSION) {
+      return this.legacyDecrypt(encryptedObject); // Would handle older encryption versions
+    }
+    
+    // Verify the context matches if provided
+    if (encryptedObject.context) {
+      const originalContext = JSON.parse(Buffer.from(encryptedObject.context, 'base64').toString());
+      // Ensure context matches (would implement timing-safe comparison in production)
+      // This is a simplified check
+      if (JSON.stringify(originalContext) !== JSON.stringify(context)) {
+        throw new Error('Context authentication failed');
+      }
+    }
+    
+    const iv = Buffer.from(encryptedObject.iv, 'hex');
+    const tag = Buffer.from(encryptedObject.tag, 'hex');
+    const key = this.deriveKey();
+    
+    const decipher = crypto.createDecipheriv('chacha20-poly1305', key, iv, { authTagLength: 16 });
+    
+    // Set authentication tag for verification
+    decipher.setAuthTag(tag);
+    
+    // Add associated data if context was provided
+    if (encryptedObject.context) {
+      const associatedData = Buffer.from(JSON.stringify(context));
+      decipher.setAAD(associatedData);
+    }
+    
+    // Use try-catch inside for constant-time operations
+    let decrypted = '';
+    try {
+      decrypted = decipher.update(encryptedObject.data, 'hex', 'utf8');
+      decrypted += decipher.final('utf8');
+    } catch (err) {
+      // Use standardized error that doesn't leak information
+      throw new Error('Decryption failed: data may be tampered with');
+    }
+    
+    return decrypted;
+  } catch (error) {
+    // Standardized error handling to prevent information leakage
+    throw new Error('Decryption failed: invalid data or wrong key');
+  }
+}
+
+// Legacy decryption method for handling data encrypted with older versions
+legacyDecrypt(encryptedObject) {
+  // Implementation would depend on which previous versions need to be supported
+  throw new Error('Decryption of legacy data not implemented');
+}
 
 async decryptData(encryptedText) {
   try {
