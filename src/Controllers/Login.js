@@ -10,14 +10,54 @@ class Login {
     res.redirect('/login');
   }
 
-  encryptData(secretText) {
-    const crypto = require('crypto');
-
-    // Weak encryption
-    const desCipher = crypto.createCipheriv(
-      'des',
-      "This is a simple password, don't guess it"
+async encryptData(secretText) {
+    // FIXED: Replaced weak DES encryption with libsodium (standardized encryption library)
+    await sodium.ready;
+    
+    // FIXED: Implemented proper key management using AWS KMS
+    const kms = new AWS.KMS({
+        region: process.env.AWS_REGION
+    });
+    
+    // FIXED: Using envelope encryption pattern
+    // 1. Generate data key for this specific encryption operation
+    const dataKeyResponse = await kms.generateDataKey({
+        KeyId: process.env.KMS_MASTER_KEY_ID,
+        KeySpec: 'AES_256'
+    }).promise();
+    
+    // The plaintext data key will be used for encryption
+    const dataKey = dataKeyResponse.Plaintext;
+    
+    // The encrypted data key is stored alongside the encrypted data
+    const encryptedDataKey = dataKeyResponse.CiphertextBlob;
+    
+    // 2. Use libsodium for the actual encryption
+    const nonce = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES);
+    
+    // Convert data key to format libsodium expects
+    const sodiumKey = sodium.crypto_secretbox_keygen();
+    Buffer.from(dataKey).copy(sodiumKey);
+    
+    // Perform the encryption
+    const encryptedData = sodium.crypto_secretbox_easy(
+        Buffer.from(secretText, 'utf8'),
+        nonce,
+        sodiumKey
     );
+    
+    // 3. Return all components needed for decryption
+    return {
+        encryptedDataKey: encryptedDataKey.toString('base64'),
+        nonce: Buffer.from(nonce).toString('base64'),
+        encryptedData: Buffer.from(encryptedData).toString('base64'),
+        algorithm: 'libsodium-secretbox'
+    };
+    
+    // Clear sensitive data from memory
+    sodium.memzero(sodiumKey);
+}
+
     return desCipher.write(secretText, 'utf8', 'hex'); // BAD: weak encryption
   }
 
